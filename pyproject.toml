@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multimodal_search"
+version = "0.1.0"
+description = "Multimodal PDF search engine backend: OCR, vision detection, embeddings, hybrid search, Gemini agent"
+readme = "Readme.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "sqlalchemy>=2.0.0",
+    "pypdfium2>=4.0.0",
+    "google-cloud-vision>=3.5.0",
+    "google-genai>=1.34.0",
+    "google-cloud-aiplatform>=1.38.0",
+    "Pillow>=10.0.0",
+    "numpy>=1.24.0",
+    "python-multipart>=0.0.6",
+    "chromadb>=0.4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+run-index = "multimodal_search.run_index:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
