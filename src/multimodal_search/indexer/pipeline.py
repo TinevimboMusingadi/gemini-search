@@ -113,7 +113,7 @@ def run_pipeline(
         existing = session.query(Document).filter(Document.file_hash == file_hash).first()
         if existing:
             logger.info("Skipping duplicate PDF: %s (doc_id=%s)", path.name, existing.id)
-            return None
+            return existing.id
 
         # Render pages
         logger.info("Rendering PDF: %s", path.name)

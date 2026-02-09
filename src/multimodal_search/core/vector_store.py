@@ -194,14 +194,19 @@ def get_vector_store(dimension: Optional[int] = None) -> VectorStoreInterface:
         dim = dimension or settings.embedding_dimension
         backend = (settings.vector_store_backend or "memory").strip().lower()
         if backend == "chroma":
-            persist_dir = settings.resolved_chroma_dir
-            persist_dir.mkdir(parents=True, exist_ok=True)
-            _vector_store = ChromaVectorStore(
-                persist_directory=str(persist_dir),
-                collection_name=CHROMA_COLLECTION_NAME,
-                dimension=dim,
-            )
-            logger.info("Vector store singleton initialized (ChromaVectorStore, dir=%s)", persist_dir)
+            try:
+                persist_dir = settings.resolved_chroma_dir
+                persist_dir.mkdir(parents=True, exist_ok=True)
+                _vector_store = ChromaVectorStore(
+                    persist_directory=str(persist_dir),
+                    collection_name=CHROMA_COLLECTION_NAME,
+                    dimension=dim,
+                )
+                logger.info("Vector store singleton initialized (ChromaVectorStore, dir=%s)", persist_dir)
+            except Exception as e:
+                logger.error("Failed to initialize ChromaDB (Python 3.14 compatibility?): %s", e)
+                logger.warning("Falling back to InMemoryVectorStore (Search will be empty/ephemeral!)")
+                _vector_store = InMemoryVectorStore(dimension=dim)
         else:
             _vector_store = InMemoryVectorStore(dimension=dim)
             logger.info("Vector store singleton initialized (InMemoryVectorStore, dim=%s)", dim)

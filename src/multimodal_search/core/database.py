@@ -96,25 +96,40 @@ class Region(Base):
 # FTS5 table creation is done in init_db() with raw SQL because SQLAlchemy doesn't ship FTS5 DDL nicely.
 
 
+_engine: Optional[Engine] = None
+
+
 def get_engine(db_path: Optional[Path] = None) -> Engine:
-    """Create or return SQLite engine."""
+    """Create or return singleton SQLite engine."""
+    global _engine
+    if _engine is not None and db_path is None:
+        return _engine
     settings = get_settings()
     path = db_path or settings.resolved_db_path
     path.parent.mkdir(parents=True, exist_ok=True)
     url = f"sqlite:///{path}"
     logger.info("Database engine: %s", url)
-    # timeout: seconds to wait when DB is locked (e.g. API holding connection).
-    return create_engine(
+    engine = create_engine(
         url,
         connect_args={"check_same_thread": False, "timeout": 60},
         echo=False,
     )
+    if db_path is None:
+        _engine = engine
+    return engine
+
+
+_db_initialized = False
 
 
 def init_db(engine: Optional[Engine] = None) -> Engine:
-    """Create all tables and FTS5 virtual table. Idempotent."""
+    """Create all tables and FTS5 virtual table. Idempotent; only runs once per process."""
+    global _db_initialized
     if engine is None:
         engine = get_engine()
+    if _db_initialized:
+        return engine
+
     Base.metadata.create_all(engine)
 
     # WAL mode: allows one writer + multiple readers. Skip if DB is locked (e.g. API running).
@@ -162,6 +177,7 @@ def init_db(engine: Optional[Engine] = None) -> Engine:
             ) from e
         raise
 
+    _db_initialized = True
     logger.info("Database and FTS5 initialized")
     return engine
 

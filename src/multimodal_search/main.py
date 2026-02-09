@@ -8,7 +8,7 @@ import os
 from fastapi import FastAPI
 
 from multimodal_search.api.middleware.cors import add_cors
-from multimodal_search.api.routes import chat, ingest, render, search_routes
+from multimodal_search.api.routes import chat, documents, ingest, render, search_routes
 
 _LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
 _level = getattr(logging, _LOG_LEVEL, logging.INFO)
@@ -31,6 +31,7 @@ app.include_router(ingest.router)
 app.include_router(search_routes.router)
 app.include_router(chat.router)
 app.include_router(render.router)
+app.include_router(documents.router)
 
 
 @app.get("/health")

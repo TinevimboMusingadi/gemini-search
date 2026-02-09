@@ -25,6 +25,11 @@ SEARCH_DB_FUNCTION = types.FunctionDeclaration(
                 "type": "integer",
                 "description": "Maximum number of results to return (default 10)",
             },
+            "mode": {
+                "type": "string",
+                "enum": ["hybrid", "keyword", "semantic"],
+                "description": "Search mode: 'hybrid' (default, best for general), 'keyword' (exact matches), or 'semantic' (conceptual/vector).",
+            },
         },
         "required": ["query"],
     },
@@ -56,13 +61,14 @@ def get_search_tool_declarations() -> list:
 def execute_search_local(
     query: str,
     top_k: int = 10,
+    mode: str = "hybrid",
     search_fn: Optional[Callable[..., SearchResponse]] = None,
 ) -> str:
     """Execute local search and return a string summary for the agent."""
     if search_fn is None:
         return "Error: search engine not configured"
     try:
-        req = SearchRequest(query=query, top_k=top_k)
+        req = SearchRequest(query=query, top_k=top_k, mode=mode)
         resp = search_fn(req)
         if not resp.results:
             return "No results found in the local index."

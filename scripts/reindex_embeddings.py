@@ -30,7 +30,7 @@ from multimodal_search.core.database import (
     get_session_factory,
     init_db,
 )
-from multimodal_search.core.vector_store import get_vector_store
+from multimodal_search.core.vector_store import get_vector_store, InMemoryVectorStore
 from multimodal_search.services.vertex_embedder import embed_images, embed_text
 
 # Configure logging
@@ -42,7 +42,7 @@ logging.basicConfig(
 logger = logging.getLogger("reindex")
 
 
-def reindex_text_chunks(session: Session, batch_size: int = 50):
+def reindex_text_chunks(session: Session, batch_size: int = 1):
     """Fetch all text chunks, embed, and add to vector store."""
     vec_store = get_vector_store()
     total = session.query(TextChunk).count()
@@ -75,7 +75,7 @@ def reindex_text_chunks(session: Session, batch_size: int = 50):
         offset += len(chunks)
 
 
-def reindex_regions(session: Session, batch_size: int = 20):
+def reindex_regions(session: Session, batch_size: int = 1):
     """Fetch all regions, load images, embed, and add to vector store."""
     vec_store = get_vector_store()
     total = session.query(Region).count()
@@ -133,6 +133,13 @@ def main():
     settings = get_settings()
     logger.info("Starting re-index. DB=%s, Backend=%s", settings.resolved_db_path, settings.vector_store_backend)
     
+    vec_store = get_vector_store()
+    if isinstance(vec_store, InMemoryVectorStore):
+        logger.error("CRITICAL: Vector store is InMemory (likely due to ChromaDB failure).")
+        logger.error("Re-indexing will consume Vertex AI credits but vectors will NOT be saved.")
+        logger.error("Aborting re-index.")
+        return
+
     if settings.vector_store_backend != "chroma":
         logger.warning("WARNING: vector_store_backend is '%s'. If this is 'memory', vectors will be lost on exit!", settings.vector_store_backend)
         logger.warning("Update config.py or .env to use 'chroma' if you want persistence.")

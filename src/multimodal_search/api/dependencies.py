@@ -25,11 +25,19 @@ def get_config() -> Settings:
     return get_settings()
 
 
-def get_db() -> Generator[Session, None, None]:
-    """Yield a DB session; caller should not commit (route handles it or use get_db_session for pipeline)."""
+def _ensure_db_ready() -> None:
+    """One-time DB + FTS5 bootstrap (idempotent, cached internally)."""
     engine = get_engine()
     init_db(engine)
-    factory = get_session_factory(engine)
+
+
+# Run once at import time so first request isn't slow
+_ensure_db_ready()
+
+
+def get_db() -> Generator[Session, None, None]:
+    """Yield a DB session per request."""
+    factory = get_session_factory()
     session = factory()
     try:
         yield session
@@ -65,11 +73,12 @@ def get_agent_runner(
     search_fn=Depends(get_search_engine),
 ):
     """Return run_agent bound with session and search_engine_fn."""
-    def _run(message: str, selected_region_context: str | None = None):
+    def _run(message: str, selected_region_context: str | None = None, session_id: str | None = None):
         return run_agent(
             message,
             session=session,
             search_engine_fn=search_fn,
             selected_region_context=selected_region_context,
+            session_id=session_id,
         )
     return _run

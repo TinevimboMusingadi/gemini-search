@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from multimodal_search.api.dependencies import get_db
-from multimodal_search.core.database import Page, Region
+from multimodal_search.core.database import Document, Page, Region
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -52,3 +52,22 @@ def render_page(
     if not path.exists():
         raise HTTPException(status_code=404, detail="Page file not found")
     return FileResponse(path, media_type="image/png")
+
+
+@router.get("/pdf/{document_id}")
+def render_pdf(
+    document_id: int,
+    session: Session = Depends(get_db),
+):
+    """Serve the raw PDF file for client-side rendering with pdf.js."""
+    doc = session.query(Document).filter(Document.id == document_id).first()
+    if not doc or not doc.storage_path:
+        raise HTTPException(status_code=404, detail="Document not found")
+    path = Path(doc.storage_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="PDF file not found on disk")
+    return FileResponse(
+        path,
+        media_type="application/pdf",
+        filename=doc.filename,
+    )

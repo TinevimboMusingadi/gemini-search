@@ -1,4 +1,3 @@
-.gitignore
 .venv/
 venv/
 env/
@@ -16,13 +15,36 @@ pitch.md
 __pycache__/
 *.pyc
 *.egg-info/
+dist/
+
+# databases
 *.db
+*.db-shm
+*.db-wal
 multimodal_search.db
+
+# data artifacts (pdfs, crops, page images, chroma vectors)
+data/pdfs/
+data/crops/
+data/pages/
+data/chroma/
 data/*.pdf
 
-#folders
-architecture_files
-context_file
-context_files
-key
-Prompts
+# node / frontend
+ui/node_modules/
+ui/dist/
+
+# debug / scratch scripts
+debug_*.py
+fix_*.py
+
+# folders (architecture docs, prompts, context)
+architecture_files/
+context_file/
+context_files/
+key/
+Prompts/
+
+# IDE
+.cursor/
+*.plan.md

@@ -64,6 +64,7 @@ def embed_text(texts: List[str], dimension: int | None = None) -> List[List[floa
             try:
                 emb = model.get_embeddings(contextual_text=t, dimension=dim)
                 out.append(emb.text_embedding)
+                time.sleep(1.0) # Proactive rate limiting
                 break # Success, move to next text
             except exceptions.ResourceExhausted as e:
                 retries += 1
@@ -118,6 +119,7 @@ def embed_images(
                 
                 emb = model.get_embeddings(image=image, dimension=dim)
                 out.append(emb.image_embedding)
+                time.sleep(1.0) # Proactive rate limiting
                 break # Success
             except exceptions.ResourceExhausted as e:
                 retries += 1
