@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, Query
 
 from multimodal_search.api.dependencies import get_db, get_search_engine
-from multimodal_search.core.schemas.search import SearchRequest, SearchResponse
+from multimodal_search.core.schemas.search import SearchRequest, SearchResponse, SearchMode
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -18,10 +18,11 @@ router = APIRouter(prefix="/search", tags=["search"])
 def search_get(
     q: str = Query(..., min_length=1),
     top_k: int = Query(20, ge=1, le=100),
+    mode: SearchMode = Query("hybrid", description="hybrid | keyword | semantic"),
     search_fn=Depends(get_search_engine),
 ):
-    """Hybrid search via query string."""
-    req = SearchRequest(query=q, top_k=top_k)
+    """Search via query string; mode: hybrid (default), keyword, or semantic."""
+    req = SearchRequest(query=q, top_k=top_k, mode=mode)
     return search_fn(req)
 
 

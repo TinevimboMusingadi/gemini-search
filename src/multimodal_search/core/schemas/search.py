@@ -1,15 +1,21 @@
 """Pydantic models for search request/response and result items."""
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
+SearchMode = Literal["hybrid", "keyword", "semantic"]
+
 
 class SearchRequest(BaseModel):
-    """Hybrid search request."""
+    """Search request; mode selects keyword-only, semantic-only, or hybrid."""
 
     query: str = Field(..., min_length=1, description="Search query")
     top_k: int = Field(default=20, ge=1, le=100, description="Max results to return")
+    mode: SearchMode = Field(
+        default="hybrid",
+        description="hybrid = keyword + semantic (RRF); keyword = FTS only; semantic = vector only",
+    )
 
 
 class SearchResultItem(BaseModel):
