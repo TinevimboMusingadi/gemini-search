@@ -53,6 +53,28 @@ def main() -> None:
 
     # 3. Vertex AI (embeddings)
     try:
+        # Pre-check credential type for better error messages
+        import os
+        import json
+        cred_path = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS") or settings.google_application_credentials
+        if cred_path:
+            p = Path(cred_path)
+            if not p.is_absolute():
+                p = settings.project_root / p
+            if p.exists():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    # Allow both service_account (server) and authorized_user (local CLI)
+                    if data.get("type") not in ("service_account", "authorized_user"):
+                        raise ValueError(
+                            f"Invalid credential type in {p.name}. "
+                            f"Found '{data.get('type', 'unknown')}', expected 'service_account' or 'authorized_user'. "
+                            "Please use a Service Account Key OR run 'gcloud auth application-default login'."
+                        )
+                except json.JSONDecodeError:
+                    pass # Let the SDK handle invalid JSON
+
         from multimodal_search.services.vertex_embedder import embed_text
 
         dim = settings.embedding_dimension

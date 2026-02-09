@@ -85,6 +85,8 @@ Or after install: `run-index path/to/file.pdf`
 
 Logs print to stdout (INFO by default). For per-step detail (OCR batches, regions, embeddings), set `LOG_LEVEL=DEBUG` before running (PowerShell: `$env:LOG_LEVEL="DEBUG"`; cmd: `set LOG_LEVEL=DEBUG`).
 
+**"Database is locked"** — The indexer and the API share the same SQLite file. The DB is configured with a 30s busy timeout and WAL mode so you can run the indexer while the API is running. If you still see lock errors, stop the API (Ctrl+C), run the indexer, then start the API again.
+
 ### 5. Quick run: index then backend
 
 1. **Index a PDF** (creates DB, crops, vector store):
@@ -100,7 +102,7 @@ Logs print to stdout (INFO by default). For per-step detail (OCR batches, region
    uvicorn multimodal_search.main:app --reload
    ```
 
-3. Try: `GET http://127.0.0.1:8000/health`, then `GET http://127.0.0.1:8000/search?q=...&top_k=10`, or `POST /chat` with a message.
+3. Try: `GET http://127.0.0.1:8000/health`, then`GET http://127.0.0.1:8000/search?q=...&top_k=10`, or `POST /chat` with a message. 
 
 ## Data
 
