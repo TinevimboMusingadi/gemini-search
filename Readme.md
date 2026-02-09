@@ -389,7 +389,3 @@ data/
 ```
 
 ---
-
-## License
-
-MIT
