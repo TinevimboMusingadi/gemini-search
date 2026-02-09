@@ -62,7 +62,7 @@ If an object is present multiple times, name them according to their unique char
 
     # Vector store: "memory" (in-memory) or "chroma" (local ChromaDB)
     vector_store_backend: str = Field(
-        default="memory",
+        default="chroma",
         description="Vector store backend: 'memory' or 'chroma'",
     )
     chroma_persist_dir: Path = Field(

@@ -103,7 +103,12 @@ def get_engine(db_path: Optional[Path] = None) -> Engine:
     path.parent.mkdir(parents=True, exist_ok=True)
     url = f"sqlite:///{path}"
     logger.info("Database engine: %s", url)
-    return create_engine(url, connect_args={"check_same_thread": False}, echo=False)
+    # timeout: seconds to wait when DB is locked (e.g. API holding connection).
+    return create_engine(
+        url,
+        connect_args={"check_same_thread": False, "timeout": 60},
+        echo=False,
+    )
 
 
 def init_db(engine: Optional[Engine] = None) -> Engine:
@@ -112,30 +117,50 @@ def init_db(engine: Optional[Engine] = None) -> Engine:
         engine = get_engine()
     Base.metadata.create_all(engine)
 
+    # WAL mode: allows one writer + multiple readers. Skip if DB is locked (e.g. API running).
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("PRAGMA journal_mode=WAL"))
+            conn.commit()
+    except Exception as e:
+        if "locked" in str(e).lower() or "busy" in str(e).lower():
+            logger.warning(
+                "Could not set WAL mode (database locked). Stop the API and run indexer alone to avoid lock."
+            )
+        else:
+            raise
+
     # FTS5 for keyword search on text_chunks
-    with engine.connect() as conn:
-        conn.execute(text(
-            """CREATE VIRTUAL TABLE IF NOT EXISTS text_chunks_fts USING fts5(
-            text, content='text_chunks', content_rowid='id'
-        )"""
-        ))
-        conn.execute(text(
-            """CREATE TRIGGER IF NOT EXISTS text_chunks_ai AFTER INSERT ON text_chunks BEGIN
-            INSERT INTO text_chunks_fts(rowid, text) VALUES (new.id, new.text);
-        END"""
-        ))
-        conn.execute(text(
-            """CREATE TRIGGER IF NOT EXISTS text_chunks_ad AFTER DELETE ON text_chunks BEGIN
-            INSERT INTO text_chunks_fts(text_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
-        END"""
-        ))
-        conn.execute(text(
-            """CREATE TRIGGER IF NOT EXISTS text_chunks_au AFTER UPDATE ON text_chunks BEGIN
-            INSERT INTO text_chunks_fts(text_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
-            INSERT INTO text_chunks_fts(rowid, text) VALUES (new.id, new.text);
-        END"""
-        ))
-        conn.commit()
+    try:
+        with engine.connect() as conn:
+            conn.execute(text(
+                """CREATE VIRTUAL TABLE IF NOT EXISTS text_chunks_fts USING fts5(
+                text, content='text_chunks', content_rowid='id'
+            )"""
+            ))
+            conn.execute(text(
+                """CREATE TRIGGER IF NOT EXISTS text_chunks_ai AFTER INSERT ON text_chunks BEGIN
+                INSERT INTO text_chunks_fts(rowid, text) VALUES (new.id, new.text);
+            END"""
+            ))
+            conn.execute(text(
+                """CREATE TRIGGER IF NOT EXISTS text_chunks_ad AFTER DELETE ON text_chunks BEGIN
+                INSERT INTO text_chunks_fts(text_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+            END"""
+            ))
+            conn.execute(text(
+                """CREATE TRIGGER IF NOT EXISTS text_chunks_au AFTER UPDATE ON text_chunks BEGIN
+                INSERT INTO text_chunks_fts(text_chunks_fts, rowid, text) VALUES ('delete', old.id, old.text);
+                INSERT INTO text_chunks_fts(rowid, text) VALUES (new.id, new.text);
+            END"""
+            ))
+            conn.commit()
+    except Exception as e:
+        if "locked" in str(e).lower() or "busy" in str(e).lower():
+            raise RuntimeError(
+                "Database is locked (the API is probably running). Stop uvicorn, then run the indexer again."
+            ) from e
+        raise
 
     logger.info("Database and FTS5 initialized")
     return engine

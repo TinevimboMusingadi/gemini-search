@@ -72,6 +72,8 @@ def _ocr_consumer(
                 results_list.append((page_ids[i], doc_ids[i], ""))
 
 
+import concurrent.futures
+
 def run_pipeline(
     pdf_path: Union[str, Path],
     session: Optional[Session] = None,
@@ -81,10 +83,14 @@ def run_pipeline(
 
     Steps:
     1) Hash, check duplicate, render pages
-    2) Insert Document + Pages
-    3) Turbo OCR -> update Page.ocr_text, chunk text
-    4) Embed text chunks, vector_store.add, insert TextChunk
-    5) Vision per page -> regions, save crops, insert Region, embed images, vector_store.add
+    2) Insert Document + Pages + Save Page Images
+    3) Parallel Extraction:
+       - Turbo OCR (background thread)
+       - Vision Detection (ThreadPoolExecutor)
+    4) Synchronization: Wait for both
+    5) Sequential Embedding:
+       - Embed text chunks (Vertex AI) -> DB + Vector Store
+       - Embed crop images (Vertex AI) -> DB + Vector Store
     6) Save PDF to storage
     """
     path = Path(pdf_path)
@@ -127,7 +133,13 @@ def run_pipeline(
         document_id = doc.id
         logger.info("Created document id=%s", document_id)
 
-        # Insert page records (no ocr_text yet)
+        # Save page images to storage
+        storage = get_storage()
+        storage.ensure_dirs()
+        for i, (_, img_bytes, meta) in enumerate(pages_data):
+            storage.save_page(img_bytes, document_id, meta["page_num"])
+
+        # Insert page records
         page_id_by_index = []
         for i, (_, _, meta) in enumerate(pages_data):
             p = Page(document_id=document_id, page_num=meta["page_num"])
@@ -135,23 +147,59 @@ def run_pipeline(
             session.flush()
             page_id_by_index.append(p.id)
 
-        # Turbo OCR
+        # --- Parallel Extraction Start ---
+        
+        # 1. Start OCR (Thread)
         vision_client = get_vision_client()
         task_queue = queue.Queue(maxsize=settings.ocr_max_queue_size)
         ocr_results_list = []
         stop_event = threading.Event()
-        consumer = threading.Thread(
+        ocr_consumer_thread = threading.Thread(
             target=_ocr_consumer,
             args=(vision_client, task_queue, ocr_results_list, settings.ocr_batch_size, stop_event),
         )
-        consumer.start()
+        ocr_consumer_thread.start()
+        
+        # Feed OCR queue
         for i, (_, img_bytes, meta) in enumerate(pages_data):
             page_id = page_id_by_index[i]
             task_queue.put((meta["page_num"], img_bytes, page_id, document_id))
-        task_queue.put(None)
-        consumer.join()
+        task_queue.put(None) # Signal end of OCR tasks
 
-        # Update Page.ocr_text and build (page_id, doc_id, text) for chunking
+        # 2. Start Vision Detection (ThreadPool)
+        gemini_client = get_gemini_client()
+        vision_results = [None] * len(pages_data) # Store results by index
+
+        def _process_page_wrapper(idx, img_bytes, page_id, w, h):
+            try:
+                return idx, process_page(img_bytes, page_id, document_id, w, h, gemini_client)
+            except Exception as e:
+                logger.exception("Vision detection failed for page %s: %s", page_id, e)
+                return idx, []
+
+        # Use ThreadPoolExecutor for concurrent Gemini calls
+        # Adjust max_workers based on rate limits if needed, default to 4 or 8 is usually fine for IO
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_page = {
+                executor.submit(
+                    _process_page_wrapper, 
+                    i, 
+                    pages_data[i][1], 
+                    page_id_by_index[i], 
+                    pages_data[i][2]["width"], 
+                    pages_data[i][2]["height"]
+                ): i for i in range(len(pages_data))
+            }
+            for future in concurrent.futures.as_completed(future_to_page):
+                idx, regions = future.result()
+                vision_results[idx] = regions
+
+        # Wait for OCR to finish
+        ocr_consumer_thread.join()
+        
+        # --- Parallel Extraction End ---
+
+        # Process OCR Results
         page_text_map = {r[0]: (r[1], r[2]) for r in ocr_results_list}
         for page in session.query(Page).filter(Page.document_id == document_id):
             if page.id in page_text_map:
@@ -161,10 +209,8 @@ def run_pipeline(
 
         ocr_for_chunking = [(pid, doc_id, text) for pid, doc_id, text in ocr_results_list]
         chunks = chunk_ocr_results(ocr_for_chunking)
-        if not chunks:
-            logger.warning("No text chunks from OCR for doc_id=%s", document_id)
-
-        # Embed text chunks and insert TextChunk + vector store
+        
+        # Embed text chunks (Sequential)
         vec_store = get_vector_store()
         if chunks:
             chunk_texts = [c[3] for c in chunks]
@@ -189,17 +235,17 @@ def run_pipeline(
                 session.flush()
             logger.info("Indexed %s text chunks for doc_id=%s", len(chunks), document_id)
 
-        # Vision: per-page detection, crop, save, Region rows, embed images
-        gemini_client = get_gemini_client()
-        storage = get_storage()
-        storage.ensure_dirs()
+        # Process Vision Results & Embed Images (Sequential)
         all_region_vectors = []
         all_region_ids = []
         all_region_meta = []
-        for i, (_, img_bytes, meta) in enumerate(pages_data):
+        
+        # Flatten results and save crops
+        for i, region_tuples in enumerate(vision_results):
+            if not region_tuples:
+                continue
             page_id = page_id_by_index[i]
-            w, h = meta["width"], meta["height"]
-            region_tuples = process_page(img_bytes, page_id, document_id, w, h, gemini_client)
+            
             for label, box_2d, crop_bytes in region_tuples:
                 r = Region(
                     page_id=page_id,
@@ -219,14 +265,24 @@ def run_pipeline(
                 r.vector_id = vector_id
                 all_region_ids.append(vector_id)
                 all_region_meta.append({"document_id": document_id, "page_id": page_id, "type": "image", "region_id": region_id})
+                
+                # Collect for batch embedding
+                # Note: We can batch all crops from all pages or do per-page. 
+                # Doing all at once allows larger batches if needed, but we already have retry logic.
+                # Let's just collect crop bytes.
+                all_region_vectors.append(crop_bytes) # temporarily store bytes here
 
-            if region_tuples:
-                crop_bytes_list = [rt[2] for rt in region_tuples]
-                region_vectors = embed_images(crop_bytes_list)
-                all_region_vectors.extend(region_vectors)
+        # Embed all collected crops
         if all_region_vectors:
-            vec_store.add(all_region_ids, all_region_vectors, metadata=all_region_meta)
-            logger.info("Indexed %s region (image) vectors for doc_id=%s", len(all_region_vectors), document_id)
+            # Actually embed the bytes now
+            # embed_images now has backoff logic
+            embeddings = embed_images(all_region_vectors)
+            
+            if len(embeddings) == len(all_region_ids):
+                vec_store.add(all_region_ids, embeddings, metadata=all_region_meta)
+                logger.info("Indexed %s region (image) vectors for doc_id=%s", len(embeddings), document_id)
+            else:
+                logger.error("Mismatch in image embeddings: %s ids vs %s vectors", len(all_region_ids), len(embeddings))
 
         # Save PDF to storage
         pdf_bytes = path.read_bytes()
