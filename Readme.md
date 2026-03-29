@@ -1,6 +1,6 @@
 # Multimodal PDF Search
 
-A full-stack multimodal search engine for PDFs. Index documents with OCR, vision detection (figures, tables, diagrams), and multimodal embeddings. Search with hybrid keyword + semantic retrieval. Research with a Gemini-powered AI agent that summarizes, grounds answers, and lets you ask follow-up questions.
+A full-stack multimodal search engine for PDFs. Index documents with OCR, vision detection (figures, tables, diagrams), and multimodal embeddings. Search with hybrid keyword + semantic retrieval. Research with a Gemini-powered AI agent that summarizes, grounds answers, and lets you ask follow-up questions.!"
 
 ```
 Backend:  Python / FastAPI / SQLite / ChromaDB / Gemini / Vertex AI
